@@ -105,7 +105,7 @@
   header {
     background: var(--header-bg);
     border-bottom: 1px solid var(--header-border);
-    padding: 0 40px;
+    padding: 0 max(40px, calc((100% - 1260px) / 2 + 40px));
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -188,6 +188,7 @@
   }
   [data-theme="dark"] .btn-export { border-color: rgba(0,176,219,0.25); }
   .btn-export:hover { filter: brightness(0.93); }
+  header .btn-export { background: #00b0db; color: #0a1b33; border-color: #00b0db; font-weight: 600; }
 
   /* ── LAYOUT ── */
   .app {
