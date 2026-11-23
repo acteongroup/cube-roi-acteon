@@ -673,6 +673,17 @@
   .app > *, .left-col > *, .results-col > * { min-width: 0; }
   .practice-grid > *, .investment-grid > *, .loan-grid > *, .roi-stat-row > * { min-width: 0; }
   /* Proc tables scroll horizontally rather than blowing the layout */
+  .prod-head, .prod-row { display: grid; grid-template-columns: minmax(0,1fr) 64px 112px 88px 28px; gap: 8px; align-items: center; }
+  .prod-head { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); padding: 0 2px 4px; }
+  .prod-row { margin-bottom: 8px; }
+  .prod-row input { width: 100%; }
+  .prod-row .prod-total { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--text); text-align: right; white-space: nowrap; }
+  .prod-remove { width: 28px; height: 28px; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; }
+  .prod-remove:hover { color: var(--red); border-color: var(--red); }
+  .prod-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+  .prod-add { border: 1px dashed var(--border-blue); background: var(--blue-dim); color: var(--text); border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: var(--font-body); }
+  .prod-add:hover { background: var(--blue-mid); }
+  @media (max-width: 600px) { .prod-head { display: none; } .prod-row { grid-template-columns: 1fr 1fr; } .prod-row .prod-name { grid-column: 1 / -1; } }
   .proc-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 </style>
 </head>
@@ -786,9 +797,17 @@
           </div>
         </div>
 
+        <div class="proc-section-label">Additional Products</div>
+        <div class="prod-head"><span>Product</span><span>Qty</span><span>Unit Price</span><span style="text-align:right">Total</span><span></span></div>
+        <div id="products-list"></div>
+        <div class="prod-actions" style="margin-bottom:18px;">
+          <button type="button" class="prod-add" onclick="addProduct('Surgical Tip Kit')">+ Surgical Tip Kit</button>
+          <button type="button" class="prod-add" onclick="addProduct('')">+ Add Product</button>
+        </div>
+
         <div class="investment-grid">
           <div class="field">
-            <label>Unit Price (MSRP)</label>
+            <label>Cube Unit Price (MSRP)</label>
             <div class="prefix-wrap"><span class="prefix">$</span>
               <input autocomplete="off" type="number" id="unit_price" placeholder="Enter Cube price" min="0" step="500" oninput="recalc()">
             </div>
@@ -1038,6 +1057,7 @@ function onCurrencyChange() {
   const next = get('currency').value;
   const ratio = FX[next] / FX[CUR];
   const money = [get('unit_price'), get('shipping'), get('down_payment'),
+                 ...document.querySelectorAll('.prod-price'),
                  ...document.querySelectorAll('[data-field="price"]')];
   money.forEach(el => {
     const v = parseFloat(el.value);
@@ -1106,15 +1126,46 @@ function recalcRow(input) {
   recalc();
 }
 
+function addProduct(name, qty, price) {
+  const row = document.createElement('div');
+  row.className = 'prod-row';
+  row.innerHTML =
+    '<input class="proc-input prod-name" type="text" autocomplete="off" placeholder="Product name…" style="text-align:left;font-family:var(--font-body);" oninput="recalc()">' +
+    '<input class="proc-input prod-qty" type="number" autocomplete="off" min="0" step="1" oninput="recalc()">' +
+    '<div class="proc-dollar"><span class="proc-prefix">$</span><input class="proc-input prod-price" type="number" autocomplete="off" min="0" step="10" placeholder="0" oninput="recalc()"></div>' +
+    '<span class="prod-total">$0</span>' +
+    '<button type="button" class="prod-remove" title="Remove" onclick="removeProduct(this)">×</button>';
+  row.querySelector('.prod-name').value = name || '';
+  row.querySelector('.prod-qty').value = qty == null ? 1 : qty;
+  if (price) row.querySelector('.prod-price').value = price;
+  get('products-list').appendChild(row);
+  applySymbols();
+  recalc();
+  if (!name) row.querySelector('.prod-name').focus();
+}
+function removeProduct(btn) { btn.closest('.prod-row').remove(); recalc(); }
+function productsTotal() {
+  let t = 0;
+  document.querySelectorAll('#products-list .prod-row').forEach(r => {
+    const q = parseFloat(r.querySelector('.prod-qty').value) || 0;
+    const p = parseFloat(r.querySelector('.prod-price').value) || 0;
+    r.querySelector('.prod-total').textContent = fmt(q * p);
+    t += q * p;
+  });
+  return t;
+}
+
 function recalc() {
   const unitPrice = val('unit_price');
   const shipping  = val('shipping');
   const taxRate   = pct('tax_rate');
-  const taxAmt    = (unitPrice + shipping) * taxRate;
+  const prodTotal = productsTotal();
+  const hasInv    = (unitPrice + prodTotal) > 0;
+  const taxAmt    = (unitPrice + prodTotal + shipping) * taxRate;
   get('tax_amt').value = Math.round(taxAmt);
-  const totalInvestment = unitPrice + shipping + taxAmt;
+  const totalInvestment = unitPrice + prodTotal + shipping + taxAmt;
 
-  if (unitPrice > 0) {
+  if (hasInv) {
     get('total_investment').textContent = fmt(totalInvestment);
   } else {
     get('total_investment').textContent = '—';
@@ -1127,7 +1178,7 @@ function recalc() {
   const loanAmount  = Math.max(0, totalInvestment - downPayment);
   const monthlyPayment = loanOn ? calcPMT(loanAmount, annualRate, months) : 0;
   if (loanOn) {
-    get('monthly_payment').textContent = unitPrice > 0 ? fmtD(monthlyPayment) : '—';
+    get('monthly_payment').textContent = hasInv ? fmtD(monthlyPayment) : '—';
   }
 
   let monthlyRevenue = 0;
@@ -1164,10 +1215,10 @@ function recalc() {
   } else {
     get('lbl-monthly-net').textContent  = 'Total Investment';
     get('stat-monthly-net').className   = 'roi-stat-value';
-    get('stat-monthly-net').textContent = unitPrice > 0 ? fmt(totalInvestment) : '—';
+    get('stat-monthly-net').textContent = hasInv ? fmt(totalInvestment) : '—';
     get('lbl-period-net').textContent   = 'Payback Period';
     get('stat-annual-net').className    = 'roi-stat-value';
-    get('stat-annual-net').textContent  = isFinite(paybackMonths) && unitPrice > 0 ? paybackMonths.toFixed(1) + ' mo' : '—';
+    get('stat-annual-net').textContent  = isFinite(paybackMonths) && hasInv ? paybackMonths.toFixed(1) + ' mo' : '—';
   }
 
   get('roi-pct-label').textContent = periodLabel + ' Return on Investment';
@@ -1186,11 +1237,11 @@ function recalc() {
   }
 
   get('bd-monthly-rev').textContent   = fmt(monthlyRevenue);
-  get('bd-payment').textContent       = !loanOn ? 'N/A (Cash)' : unitPrice > 0 ? '(' + fmtD(monthlyPayment) + ')' : '—';
-  get('bd-net-monthly').textContent   = unitPrice > 0 ? fmt(netMonthly) : '—';
+  get('bd-payment').textContent       = !loanOn ? 'N/A (Cash)' : hasInv ? '(' + fmtD(monthlyPayment) + ')' : '—';
+  get('bd-net-monthly').textContent   = hasInv ? fmt(netMonthly) : '—';
   get('bd-annual-rev').textContent    = fmt(periodRevenue);
-  get('bd-annual-payment').textContent= !loanOn ? 'N/A (Cash)' : unitPrice > 0 ? '(' + fmt(monthlyPayment*usagePeriod) + ')' : '—';
-  get('bd-net-annual').textContent    = unitPrice > 0 ? fmt(netPeriod) : '—';
+  get('bd-annual-payment').textContent= !loanOn ? 'N/A (Cash)' : hasInv ? '(' + fmt(monthlyPayment*usagePeriod) + ')' : '—';
+  get('bd-net-annual').textContent    = hasInv ? fmt(netPeriod) : '—';
   get('lbl-bd-annual-rev').textContent     = periodLabel + ' Revenue';
   get('lbl-bd-annual-payment').textContent = periodLabel + ' Loan Cost';
   get('lbl-bd-net-annual').textContent     = 'Net ' + periodLabel + ' Income';
@@ -1208,16 +1259,16 @@ function recalc() {
   get('total-cost-row').style.display     = showTotalCostRow ? 'flex' : 'none';
   get('total-cost-divider').style.display = showTotalCostRow ? 'block' : 'none';
   get('lbl-stat-total-cost').textContent  = 'Total Cost w/ Financing';
-  get('stat-total-cost').textContent      = unitPrice > 0 ? fmt(totalFinancedCost) : '—';
+  get('stat-total-cost').textContent      = hasInv ? fmt(totalFinancedCost) : '—';
 
   get('lbl-bd-term-section').textContent  = loanOn ? 'Over Full Loan Term (' + termMonths + ' mo)' : 'Over Usage Period (' + termMonths + ' mo)';
   get('lbl-bd-total-cost').textContent    = loanOn ? 'Total Cost w/ Financing' : 'Total Investment';
-  get('bd-total-cost').textContent        = unitPrice > 0 ? '(' + fmt(totalFinancedCost) + ')' : '—';
+  get('bd-total-cost').textContent        = hasInv ? '(' + fmt(totalFinancedCost) + ')' : '—';
   get('lbl-bd-revenue-term').textContent  = termLabel + ' Revenue';
-  get('bd-revenue-term').textContent      = unitPrice > 0 ? fmt(revenueOverTerm) : '—';
+  get('bd-revenue-term').textContent      = hasInv ? fmt(revenueOverTerm) : '—';
   get('lbl-bd-net-term').textContent      = 'Net Gain Over ' + termLabel;
   const netTermEl = get('bd-net-term');
-  netTermEl.textContent  = unitPrice > 0 ? fmt(netOverTerm) : '—';
+  netTermEl.textContent  = hasInv ? fmt(netOverTerm) : '—';
   netTermEl.className    = 'breakdown-value' + (netOverTerm >= 0 ? ' green' : ' red');
 
   const loanTerm = months || 36;
@@ -1282,6 +1333,7 @@ function resetAll() {
 }
 
 function resetState() {
+  get('products-list').innerHTML = '';
   get('practice_name').value    = '';
   get('doctor_name').value      = '';
   CUR = 'USD'; get('currency').value = 'USD'; applySymbols();
@@ -1425,7 +1477,15 @@ async function exportPDF() {
 
     let yL = colHead('PRODUCT INVESTMENT', lx, y);
     yL = colRow('Model', modelLabel, lx, yL);
-    yL = colRow('Unit Price (MSRP)', fmt(val('unit_price')), lx, yL);
+    yL = colRow('Cube Unit Price (MSRP)', fmt(val('unit_price')), lx, yL);
+    document.querySelectorAll('#products-list .prod-row').forEach(r => {
+      const q = parseFloat(r.querySelector('.prod-qty').value) || 0;
+      const p = parseFloat(r.querySelector('.prod-price').value) || 0;
+      if (q === 0 && p === 0) return;
+      let nm = (r.querySelector('.prod-name').value || 'Product').trim();
+      if (nm.length > 22) nm = nm.slice(0, 21) + '…';
+      yL = colRow(nm + ' (' + q + ' × ' + fmt(p) + ')', fmt(q * p), lx, yL);
+    });
     yL = colRow('Shipping', fmt(val('shipping')), lx, yL);
     yL = colRow('Tax ('+val('tax_rate')+'%)', fmt(parseFloat(get('tax_amt').value)||0), lx, yL);
     yL = colHL('Total Investment', get('total_investment').textContent, lx, yL, heroBg, green);
